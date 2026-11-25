@@ -1,4 +1,4 @@
-# קריינות בעברית (he-IL-AvriNeural) + מיקס עם הצלילים. שימוש: python3 vo.py "<שם>" "<בירה>" <קוד יבשת>
+# קריינות בעברית (he-IL-HilaNeural) + מיקס עם הצלילים. שימוש: python3 vo.py "<שם>" "<בירה>" <קוד יבשת>
 import sys, asyncio, subprocess, json, os
 try:  # תעודת הפרוקסי של הסביבה
     import certifi; p=certifi.where(); ca='/root/.ccr/ca-bundle.crt'
@@ -16,7 +16,7 @@ LINES = [  # (זמן התחלה בשניות, טקסט)
 ]
 SLOT_END = [5.3, 8.8, 12.5, 16.8, 22.8]
 async def tts(i, text):
-    await edge_tts.Communicate(text, "he-IL-AvriNeural", rate="+6%").save(f"vo{i}.mp3")
+    await edge_tts.Communicate(text, "he-IL-HilaNeural", rate="+6%").save(f"vo{i}.mp3")
 async def main():
     for i,(t,x) in enumerate(LINES): await tts(i, x)
 asyncio.run(main())
