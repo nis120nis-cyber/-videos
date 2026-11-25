@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8">
+<style>
+@font-face{font-family:"FR";font-weight:700;src:url(fonts/frank-ruhl-libre-hebrew-700-normal.woff2)}
+@font-face{font-family:"FR";font-weight:700;src:url(fonts/frank-ruhl-libre-latin-700-normal.woff2);unicode-range:U+0000-00FF}
+@font-face{font-family:"HB";font-weight:400;src:url(fonts/heebo-hebrew-400-normal.woff2)}
+@font-face{font-family:"HB";font-weight:400;src:url(fonts/heebo-latin-400-normal.woff2);unicode-range:U+0000-00FF}
+@font-face{font-family:"HB";font-weight:700;src:url(fonts/heebo-hebrew-700-normal.woff2)}
+@font-face{font-family:"HB";font-weight:700;src:url(fonts/heebo-latin-700-normal.woff2);unicode-range:U+0000-00FF}
+html,body{margin:0;background:#F7F6F2}
+canvas{display:block}
+</style></head><body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script src="d3-array.min.js"></script><script src="d3-geo.min.js"></script><script src="topojson-client.min.js"></script><script src="data.js"></script>
+<script>
+// ---- תבנית סרטון "איזו מדינה זו?" — render(t) מצייר את הפריים בזמן t (שניות) ----
+const W=1080,H=1920, DUR=23;
+const INK="#1A1A1A", MUTE="#5C5A54", ACC="#B85032", PAPER="#F7F6F2", PAPER2="#F2EFE7", OCEAN="#DCE4E4", LAND="#ECE7DC", BORDER="#BDB6A8", GRAT="#C9D3D3";
+const CONT={AF:"אפריקה",AS:"אסיה",EU:"אירופה",NA:"צפון ומרכז אמריקה",SA:"דרום אמריקה",OC:"אוקיאניה"};
+const ctx=document.getElementById("c").getContext("2d");
+const feats=topojson.feature(WORLD,WORLD.objects.countries).features.filter(f=>f.id!=="010");
+const land={type:"FeatureCollection",features:feats};
+const borders=topojson.mesh(WORLD,WORLD.objects.countries,(a,b)=>a!==b);
+const grat=d3.geoGraticule10();
+let T=null, TC=null, TEXT=0, flagImg=null, logo=null, hatch=null, thatch=null, cfg={};
+const ease=k=>k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;
+const cl=(x,a=0,b=1)=>Math.max(a,Math.min(b,x));
+const seg=(t,a,b)=>cl((t-a)/(b-a));
+function core(f){ if(f.geometry.type!=="MultiPolygon") return f; let b=null,ba=-1; for(const p of f.geometry.coordinates){const pf={type:"Feature",geometry:{type:"Polygon",coordinates:p}},a=d3.geoArea(pf); if(a>ba){ba=a;b=pf}} return b; }
+function pat(w,h,fn){ const c=document.createElement("canvas"); c.width=w; c.height=h; fn(c.getContext("2d")); return ctx.createPattern(c,"repeat"); }
+async function setup(id,opts){
+  cfg=opts||{}; window.cfg=cfg;
+  T=feats.find(f=>f.id===id); const cf=core(T); TC=d3.geoCentroid(cf);
+  let e=0; const pts=cf.geometry.coordinates.flat(); for(const p of pts) e=Math.max(e,d3.geoDistance(TC,p)); TEXT=e*180/Math.PI;
+  hatch=pat(12,12,x=>{x.strokeStyle="#B9C8C8";x.lineWidth=1.2;x.beginPath();x.moveTo(0,6);x.lineTo(12,6);x.stroke();});
+  thatch=pat(12,12,x=>{x.strokeStyle="rgba(138,58,34,.45)";x.lineWidth=2;x.beginPath();x.moveTo(0,12);x.lineTo(12,0);x.moveTo(-2,2);x.lineTo(2,-2);x.moveTo(10,14);x.lineTo(14,10);x.stroke();});
+  const load=src=>new Promise(r=>{const i=new Image(); i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src;});
+  flagImg=FLAGS[id]?await load("data:image/svg+xml;charset=utf-8,"+encodeURIComponent(FLAGS[id])):null;
+  logo=await load("logo-t.png");
+  await document.fonts.load('700 80px FR'); await document.fonts.load('700 40px HB'); await document.fonts.load('400 40px HB');
+  Object.assign(cfg,{name:META[id][0], cap:META[id][1], cont:CONT[META[id][2]]});
+  return {name:cfg.name, cap:cfg.cap, cont:cfg.cont};
+}
+function text(s,x,y,font,color,align="center",alpha=1){ ctx.save(); ctx.globalAlpha=alpha; ctx.font=font; ctx.fillStyle=color; ctx.textAlign=align; ctx.direction="rtl"; ctx.fillText(s,x,y); ctx.restore(); }
+function frameBorder(x,y,w,h){
+  ctx.lineWidth=10; ctx.strokeStyle=INK; ctx.setLineDash([]); ctx.strokeRect(x,y,w,h);
+  ctx.lineWidth=5; ctx.strokeStyle=PAPER2; ctx.setLineDash([48,48]); ctx.strokeRect(x,y,w,h); ctx.setLineDash([]);
+  ctx.lineWidth=1.4; ctx.strokeStyle=INK; ctx.strokeRect(x+12,y+12,w-24,h-24);
+}
+// הגלובוס: בתוך מסגרת אטלס, באמצע המסך
+const GX=140, GY=400, GW=800, GH=800;
+function globe(t){
+  // מסלול: מסתובב לאט (0–2.5), טס למדינה ומתקרב (2.5–6), נשאר (6–20)
+  const start=[TC[0]+150, 20];
+  const k=ease(seg(t,2.6,6.0));
+  const spin=(1-seg(t,0,2.6))*0;
+  const center=d3.geoInterpolate([start[0]-t*8*(t<2.6?1:0),start[1]],TC)(k);
+  const zoomR = 89 - (89-Math.min(60,Math.max(12,TEXT*2.6)))*k;
+  ctx.save(); ctx.beginPath(); ctx.rect(GX,GY,GW,GH); ctx.clip();
+  ctx.fillStyle=PAPER2; ctx.fillRect(GX,GY,GW,GH);
+  const P=60, proj=d3.geoOrthographic().rotate([-center[0],-center[1]]).clipAngle(90).precision(.6)
+    .fitExtent([[GX+P,GY+P],[GX+GW-P,GY+GH-P]], d3.geoCircle().center(center).radius(Math.min(zoomR,89.9))());
+  const path=d3.geoPath(proj,ctx);
+  ctx.beginPath(); path({type:"Sphere"}); ctx.fillStyle=OCEAN; ctx.fill(); ctx.fillStyle=hatch; ctx.fill();
+  ctx.beginPath(); path(grat); ctx.strokeStyle=GRAT; ctx.lineWidth=1.4; ctx.stroke();
+  ctx.beginPath(); path(land); ctx.fillStyle=LAND; ctx.fill();
+  ctx.beginPath(); path(borders); ctx.strokeStyle=BORDER; ctx.lineWidth=1.2; ctx.stroke();
+  // המדינה המסומנת — נדלקת כשמגיעים אליה
+  const on=seg(t,4.6,5.6);
+  if(on>0){ ctx.save(); ctx.globalAlpha=on; ctx.beginPath(); path(T); ctx.fillStyle=ACC; ctx.fill(); ctx.fillStyle=thatch; ctx.fill(); ctx.strokeStyle=INK; ctx.lineWidth=2; ctx.stroke(); ctx.restore(); }
+  // סימן שאלה מעל המדינה, עד החשיפה
+  const p=proj(TC), q=on*(1-seg(t,12.6,13.0));
+  if(p&&q>0){ const y=Math.max(GY+110,p[1]-120); ctx.save(); ctx.globalAlpha=q;
+    ctx.beginPath(); ctx.moveTo(p[0],p[1]-8); ctx.lineTo(p[0],y+34); ctx.strokeStyle=INK; ctx.lineWidth=3; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p[0],y,38,0,7); ctx.fillStyle=INK; ctx.fill();
+    text("?",p[0],y+20,'700 56px FR',PAPER); ctx.restore(); }
+  // בחשיפה: שם המדינה על המפה
+  const rv=seg(t,12.8,13.4);
+  if(p&&rv>0){ ctx.save(); ctx.globalAlpha=rv; ctx.font='700 64px FR'; ctx.textAlign="center"; ctx.direction="rtl"; ctx.lineJoin="round";
+    ctx.strokeStyle=PAPER; ctx.lineWidth=14; ctx.strokeText(cfg.name,p[0],p[1]+22); ctx.fillStyle="#8A3A22"; ctx.fillText(cfg.name,p[0],p[1]+22); ctx.restore(); }
+  ctx.restore();
+  frameBorder(GX+16,GY+16,GW-32,GH-32);
+  // חץ צפון
+  const nx=GX+90, ny=GY+GH-120; ctx.beginPath(); ctx.moveTo(nx,ny-34); ctx.lineTo(nx+15,ny+12); ctx.lineTo(nx,ny+2); ctx.lineTo(nx-15,ny+12); ctx.closePath(); ctx.fillStyle=INK; ctx.fill();
+  text("צ",nx,ny+52,'700 30px FR',INK);
+}
+function render(t){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.fillStyle=PAPER; ctx.fillRect(0,0,W,H);
+  // כותרת עליונה בסגנון עיתון
+  ctx.fillStyle=INK; ctx.fillRect(70,150,940,4); ctx.fillRect(70,162,940,2);
+  text(`אתגר יומי #${cfg.n||1}`,1010,212,'400 34px HB',MUTE,"right");
+  text(cfg.date||"",70,212,'400 34px HB',MUTE,"left");
+  ctx.fillStyle="#E5E2DC"; ctx.fillRect(70,236,940,2);
+  // שאלה / תשובה מעל הגלובוס
+  const qIn=seg(t,.2,.9), qOut=seg(t,12.4,12.8);
+  if(qOut<1){ const y=345+ (1-ease(qIn))*30;
+    ctx.save(); ctx.globalAlpha=qIn*(1-qOut); ctx.font='700 104px FR'; ctx.textAlign="center"; ctx.direction="rtl";
+    const a="איזו ", b="מדינה", c=" זו?"; const wa=ctx.measureText(a).width, wb=ctx.measureText(b).width, wc=ctx.measureText(c).width, tot=wa+wb+wc;
+    let x=W/2+tot/2; ctx.textAlign="right"; ctx.fillStyle=INK; ctx.fillText(a,x,y); x-=wa; ctx.fillStyle=ACC; ctx.fillText(b,x,y); x-=wb; ctx.fillStyle=INK; ctx.fillText(c,x,y); ctx.restore(); }
+  const rvT=seg(t,12.8,13.4);
+  if(rvT>0&&t<16.8) text(cfg.name,W/2,345+(1-ease(rvT))*24,'700 110px FR',ACC,"center",rvT*(1-seg(t,16.4,16.8)));
+  globe(t);
+  // מתחת לגלובוס: ספירה לאחור + רמז
+  const cy=1262;
+  if(t>=6.6&&t<12.6){
+    const s=Math.ceil(11.6-t+1e-9), sIn=t-Math.floor(t-0.6)-0.6; // 5..1
+    const n=Math.max(1,Math.min(5,Math.ceil(12.6-t-1)));
+    const ph=(t-6.6)%1, pop=1+.18*(1-ease(cl(ph*3)));
+    ctx.save(); ctx.translate(W/2,cy+70); ctx.scale(pop,pop);
+    ctx.beginPath(); ctx.arc(0,0,92,0,7); ctx.fillStyle=n<=2?ACC:INK; ctx.fill();
+    // טבעת זמן
+    ctx.beginPath(); ctx.arc(0,0,108,-Math.PI/2,-Math.PI/2+2*Math.PI*(1-ph)); ctx.strokeStyle=n<=2?ACC:INK; ctx.lineWidth=6; ctx.stroke();
+    text(String(n),0,38,'700 112px FR',PAPER); ctx.restore();
+    text("יש לכם 5 שניות",W/2,cy+235,'700 50px HB',INK,"center",seg(t,6.6,7.0));
+    const hA=seg(t,9.0,9.4);
+    if(hA>0) text(`רמז: ${cfg.cont}`,W/2,cy+300,'400 44px HB',MUTE,"center",hA);
+  }
+  // חשיפה: שם + דגל + בירה
+  if(t>=12.6&&t<16.8){
+    const a=ease(seg(t,12.6,13.2))*(1-seg(t,16.4,16.8));
+    const fw=280, fh=210, fx=W/2-fw/2, fy=cy+30+(1-a)*30;
+    ctx.save(); ctx.globalAlpha=a;
+    if(flagImg){ ctx.fillStyle="#fff"; ctx.fillRect(fx-8,fy-8,fw+16,fh+16); ctx.strokeStyle="#CFCAC0"; ctx.lineWidth=2; ctx.strokeRect(fx-8,fy-8,fw+16,fh+16); ctx.drawImage(flagImg,fx,fy,fw,fh); }
+    ctx.restore();
+    text(`הבירה: ${cfg.cap} · ${cfg.cont}`,W/2,fy+fh+74,'400 44px HB',MUTE,"center",a);
+  }
+  // קריאה לפעולה — כרטיס סיום בתוך האזור הבטוח של טיקטוק
+  if(t>=16.6){
+    const a=ease(seg(t,16.6,17.3));
+    ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=PAPER; ctx.fillRect(0,250,W,H-250); ctx.restore();
+    if(logo){ ctx.save(); ctx.globalAlpha=a; const lw=520, lh=lw*logo.height/logo.width; ctx.drawImage(logo,W/2-lw/2,330+(1-a)*30,lw,lh); ctx.restore(); }
+    text("חושבים שאתם יותר טובים?",W/2,1010+(1-a)*24,'700 66px FR',INK,"center",a);
+    const bw=780,bh=128,bx=W/2-bw/2,by=1070+(1-a)*24;
+    ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=ACC; ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,12); ctx.fill(); ctx.restore();
+    text("אתגרו חבר בראש בראש",W/2,by+84,'700 58px HB',PAPER,"center",a);
+    const b2=seg(t,17.3,17.9);
+    text("הקישור בביו · משחק חינמי בעברית",W/2,by+bh+80,'400 42px HB',MUTE,"center",b2);
+    text("כתבו בתגובות אם ניחשתם נכון",W/2,by+bh+150,'700 42px HB',INK,"center",b2);
+  }
+}
+window.setup=setup; window.render=render; window.DUR=DUR;
+window.grab=(t,q)=>{ render(t); return document.getElementById('c').toDataURL('image/jpeg',q||0.92); };
+</script></body></html>

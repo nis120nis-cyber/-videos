@@ -1,0 +1,7 @@
+node_modules/
+*.wav
+*.mp3
+quiz.mp4
+quiz.*.mp4
+final.mp4
+info.txt
